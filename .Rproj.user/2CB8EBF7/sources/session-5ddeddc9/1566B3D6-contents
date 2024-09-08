@@ -1,0 +1,146 @@
+---
+title: "統實"
+author: "吳振瑋"
+header-includes:
+- \usepackage{fontspec}
+- \usepackage{xeCJK}
+- \setCJKmainfont{標楷體}
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(ggplot2)
+library(readr)
+data <- read_csv("C:/Users/user/OneDrive/桌面/統實/CFPREC_data1.csv")
+```
+
+```{r}
+table(data$characteristic)
+data_length <- subset(data,characteristic == "Length" | characteristic == "Length(max)" | characteristic == "Diameter(min)" | characteristic == "Length(min)" | characteristic == "Position(max)")
+
+data_angle <- subset(data,characteristic == "Angle" | characteristic =="Angle(min)" | characteristic =="Angularity" | characteristic =="Perpendicularity")
+
+
+## 驗證data分成功
+dim(data)[1] == dim(data_angle)[1]+dim(data_length)[1]
+```
+
+## 兩群data的長條圖
+
+```{r}
+diff_l <- data_length$CFP - data_length$TFM
+diff_a <- data_angle$CFP - data_angle$TFM
+## length
+hist(diff_l,main = "plot (1)",breaks = 20,probability = T)
+lines(density(diff_l),col = "red",lwd = 2)
+## angle
+hist(diff_a,main = "plot (2)",breaks = 20,probability = T)
+lines(density(diff_a),col = "red",lwd = 2)
+```
+
+## length的QQ plot
+
+```{r}
+## 先處理length的部分
+qqnorm(diff_l)
+qqline(diff_l, col = "red")
+```
+
+
+```{r}
+shapiro.test(diff_l)
+ks.test(diff_l, "pnorm", mean = mean(diff_l), sd = sd(diff_l))
+```
+
+
+兩者檢定P-value皆小於0.05，表示此分配顯著異於常態。
+
+目前我希望可以做一個轉換，使得做了轉換的資料符合常態分配，並且我們可以由plot (1)看出這個分配是右偏分配(or雙峰?)，常用的轉換有Square root轉換和log轉換。
+
+## Square root轉換
+
+```{r}
+sqrt_transformed <- sqrt(diff_l + abs(min(diff_l)) + 1) ##讓data都是正的
+
+qqnorm(sqrt_transformed)
+qqline(sqrt_transformed, col = "red")
+
+hist(sqrt_transformed,main = "plot (3)",breaks = 20,probability = T)
+lines(density(sqrt_transformed),col = "red",lwd = 2)
+```
+
+```{r}
+shapiro.test(sqrt_transformed)
+ks.test(sqrt_transformed, "pnorm", mean = mean(sqrt_transformed), sd = sd(sqrt_transformed))
+```
+
+仍然失敗。
+
+## log轉換
+
+```{r}
+log_transformed <- log(diff_l + abs(min(diff_l)) + 0.01)
+# 檢查轉換後分佈
+hist(log_transformed,main = "plot (4)",breaks = 20,probability = T)
+lines(density(log_transformed),col = "red",lwd = 2)
+
+qqnorm(log_transformed)
+qqline(log_transformed, col = "red")
+shapiro.test(log_transformed)
+
+```
+
+失敗，但感覺就是最小的值使得這個不符合常態
+
+```{r}
+library(MASS)
+shift_value <- abs(min(diff_l)) + 1
+
+shifted_data <- (diff_l) + shift_value
+
+library(MASS)
+bc <- boxcox(lm(shifted_data ~ 1), plotit = TRUE)
+lambda <- bc$x[which.max(bc$y)]
+
+boxcox_transformed <- (shifted_data^lambda - 1) / lambda
+
+# 轉換後分佈
+hist(boxcox_transformed,main = "plot (5)",breaks = 20,probability = T)
+lines(density(boxcox_transformed),col = "red",lwd = 2)
+qqnorm(boxcox_transformed)
+qqline(boxcox_transformed, col = "red")
+shapiro.test(boxcox_transformed)
+ks.test(boxcox_transformed, "pnorm", mean = mean(boxcox_transformed), sd = sd(boxcox_transformed))
+```
+
+接近0.05，仍失敗，感覺要先踢出去一些outlier再做分析(但有可能那個outlier是重要的關鍵，有充分的證據表示這兩台機器不一樣，但如果踢掉這筆資料後，仍發現兩台機器有顯著差異，那就表示原本的data更有充分的證據表示兩台機器有差異)。
+
+
+## log轉換+踢出一個outlier
+
+```{r}
+out_log_transformed <- log_transformed[-which.min(log_transformed)]
+# 檢查轉換後分佈
+hist(out_log_transformed,main = "plot (6)",breaks = 20,probability = T)
+lines(density(out_log_transformed),col = "red",lwd = 2)
+
+qqnorm(out_log_transformed)
+qqline(out_log_transformed, col = "red")
+shapiro.test(out_log_transformed)
+ks.test(out_log_transformed, "pnorm", mean = mean(out_log_transformed), sd = sd(out_log_transformed))
+```
+
+ks 是不顯著的，我也覺得他很常態。
+
+```{r}
+t.test(out_log_transformed,rep(0,length(out_log_transformed)), paired = TRUE)
+```
+
+顯著異於0，表示兩台機器有顯著差異。
+
+
+
